@@ -65,7 +65,7 @@ def _to_command(version_info: VersionInfo) -> str:
         # {version}
         dasel put string -f pyproject.toml -p toml '.tool.poetry.dependencies.pyright' '{version}'
         poetry update
-        git add .
+        git add pyproject.toml poetry.lock
         git commit -m "Update pyright version to {version}"
         git tag -a "{version}" -m "pyright {version}"
 
