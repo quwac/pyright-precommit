@@ -14,7 +14,7 @@ def _get_latest_version_info() -> VersionInfo:
 
     version = obj["tool"]["poetry"]["dependencies"]["pyright"]
     if version == "*":
-        return VersionInfo(1, 0, 999)
+        return VersionInfo(1, 1, 249)
 
     return VersionInfo.parse(version)
 
