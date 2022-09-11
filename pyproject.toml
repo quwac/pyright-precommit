@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "pyright-precommit"
+version = "1.0.0"
+description = ""
+authors = ["quwac <53551867+quwac@users.noreply.github.com>"]
+packages = [
+    { include = "pyright-precommit" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.7,<4.0"
+pyright = "1.1.270"
+
+[tool.poetry.dev-dependencies]
+# black = "^22.8.0"
+# isort = "^5.10.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"

@@ -1,0 +1,7 @@
+- id: pyright
+  name: pyright
+  entry: python -m pyright-precommit
+  language: python
+  pass_filenames: true
+  types: [python]
+  verbose: true
