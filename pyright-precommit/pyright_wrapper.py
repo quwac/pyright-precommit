@@ -1,23 +1,97 @@
 import os
+import subprocess
 import sys
+from collections import OrderedDict
 from copy import deepcopy
 from dataclasses import dataclass
-from itertools import groupby
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pyright.cli
 
 _PYRIGHT_CONFIG_FILE_NAMES = ["pyrightconfig.json", "pyproject.toml"]
 
 
+class _Pyright:
+    def __init__(self, args: List[str]) -> None:
+        self.args = args
+
+    def execute(self) -> int:
+        raise NotImplementedError()
+
+
+class _PreinstalledPyright(_Pyright):
+    def execute(self) -> int:
+        print(f"PreinstalledPyright args={self.args}")
+        return pyright.cli.main(self.args)
+
+
+class _UserSpecifiedPyright(_Pyright):
+    def __init__(self, pyright_path: str, args: List[str]) -> None:
+        super().__init__(args)
+        self.pyright_path = pyright_path
+
+    def execute(self) -> int:
+        args = [self.pyright_path] + self.args
+        print(f"UserSpecifiedPyright args={args}")
+        proc = subprocess.Popen(args, shell=True)
+
+        while True:
+            do_not_break = False
+            stdout = proc.stdout
+            if stdout:
+                lines = stdout.readlines()
+                for line in lines:
+                    sys.stdout.write(line.decode("utf-8"))
+                    do_not_break = True
+
+            returncode = proc.poll()
+            if not do_not_break and returncode is not None:
+                return returncode
+
+
 @dataclass(frozen=True)
 class _ParamFile:
-    target_python_file_path: Path
-    config_file_path: Path
+    target_python_file_path: str
+    config_file_path: str
 
 
-def _to_params(arguments: List[str]) -> Tuple[List[str], List[_ParamFile]]:  # noqa: CCR001
+@dataclass(frozen=True)
+class _WrapperParam:
+    pyright_path: Optional[str]
+    disable_subproject_search: bool
+    files: List[_ParamFile]
+
+    def __post_init__(self):
+        if self.pyright_path is not None:
+            path = Path(self.pyright_path)
+            assert path.exists() and path.is_file(), f"Executable pyright not found at '{path}'"
+
+
+def _parse_wrapper_params(arguments: List[str]) -> Tuple[Optional[str], bool, List[str]]:
+    pyright_path: Optional[str] = None
+    index = 0
+    disable_subproject_search = False
+
+    new_args = []
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument.lower() == "--pyright-path":
+            pyright_path = arguments[index + 1]
+            index += 1
+        elif argument.lower() == "--disable_subproject_search":
+            disable_subproject_search = True
+        else:
+            new_args.append(argument)
+
+        index += 1
+
+    return pyright_path, disable_subproject_search, new_args
+
+
+def _to_params(arguments: List[str]) -> Tuple[List[str], _WrapperParam]:
+    pyright_path, disable_subproject_search, arguments = _parse_wrapper_params(arguments)
+
     start_index = 0
     index = len(arguments) - 1
     while index >= 0:
@@ -47,7 +121,12 @@ def _to_params(arguments: List[str]) -> Tuple[List[str], List[_ParamFile]]:  # n
             for config_file_name in _PYRIGHT_CONFIG_FILE_NAMES:
                 config_file_path = parent / config_file_name
                 if config_file_path.exists() and config_file_path.is_file():
-                    params_file.append(_ParamFile(path, config_file_path))
+                    params_file.append(
+                        _ParamFile(
+                            path.absolute().__str__(),
+                            config_file_path.absolute().__str__(),
+                        )
+                    )
                     added = True
                     break
             if added:
@@ -55,30 +134,46 @@ def _to_params(arguments: List[str]) -> Tuple[List[str], List[_ParamFile]]:  # n
             else:
                 parent = parent.parent
 
-    return params_pyright, params_file
+    return params_pyright, _WrapperParam(pyright_path, disable_subproject_search, params_file)
 
 
-def main(file_paths: List[str]) -> int:
-    pyright_params, params = _to_params(file_paths)
+def main(args: List[str]) -> int:
+    pyright_params, wrapper_param = _to_params(args)
 
     # Group by same config file.
-    pyright_config_file_path_and_params = list(groupby(params, lambda x: x.config_file_path))
+    config_file_path_to_files: Dict[str, List[_ParamFile]] = OrderedDict()
+    for file in wrapper_param.files:
+        if file.config_file_path not in config_file_path_to_files:
+            config_file_path_to_files[file.config_file_path] = []
+        config_file_path_to_files[file.config_file_path].append(file)
 
     error = False
-    for pyproject_toml_path, params in pyright_config_file_path_and_params:
-        pyproject_toml_parent = pyproject_toml_path.parent.absolute()
-        command = (
-            [
-                "pyright",
-                "-p",
-                pyproject_toml_parent.__str__(),
-            ]
+    for pyproject_toml_path, files in config_file_path_to_files.items():
+        files = sorted(files, key=lambda file: file.target_python_file_path)
+        assert len(files) > 0
+        pyproject_toml_parent = Path(pyproject_toml_path).parent.absolute()
+        args = (
+            (
+                [
+                    "-p",
+                    pyproject_toml_parent.__str__(),
+                ]
+                if not wrapper_param.disable_subproject_search
+                else []
+            )
             + pyright_params
-            + [param.target_python_file_path.absolute().__str__() for param in params]
+            + [file.target_python_file_path for file in files]
         )
 
-        print(f"command={' '.join(command)}")
-        error &= pyright.cli.main(command[1:])
+        if wrapper_param.pyright_path is not None:
+            pyright_command = _UserSpecifiedPyright(
+                pyright_path=wrapper_param.pyright_path,
+                args=args,
+            )
+        else:
+            pyright_command = _PreinstalledPyright(args=args)
+
+        error &= pyright_command.execute() == 0
 
     return 1 if error else 0
 
