@@ -4,4 +4,3 @@
   language: python
   pass_filenames: true
   types: [python]
-  verbose: true
