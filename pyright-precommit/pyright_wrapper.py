@@ -85,9 +85,9 @@ def _parse_wrapper_params(arguments: List[str]) -> Tuple[Optional[str], bool, bo
         if argument.lower() == "--pyright-path":
             pyright_path = arguments[index + 1]
             index += 1
-        elif argument.lower() == "--uses_poetry_run":
+        elif argument.lower() == "--uses-poetry-run":
             uses_poetry_run = True
-        elif argument.lower() == "--disable_subproject_search":
+        elif argument.lower() == "--disable-subproject-search":
             disable_subproject_search = True
         else:
             new_args.append(argument)
