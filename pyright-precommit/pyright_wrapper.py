@@ -27,12 +27,16 @@ class _PreinstalledPyright(_Pyright):
 
 
 class _UserSpecifiedPyright(_Pyright):
-    def __init__(self, pyright_path: str, args: List[str]) -> None:
+    def __init__(self, pyright_path: str, uses_poetry_run: bool, args: List[str]) -> None:
         super().__init__(args)
         self.pyright_path = pyright_path
+        self.uses_poetry_run = uses_poetry_run
 
     def execute(self) -> int:
-        args = [self.pyright_path] + self.args
+        if self.uses_poetry_run:
+            args = ["poetry", "run"] + [self.pyright_path] + self.args
+        else:
+            args = [self.pyright_path] + self.args
         print(f"UserSpecifiedPyright args={args}")
         proc = subprocess.Popen(args, shell=True)
 
@@ -59,6 +63,7 @@ class _ParamFile:
 @dataclass(frozen=True)
 class _WrapperParam:
     pyright_path: Optional[str]
+    uses_poetry_run: bool
     disable_subproject_search: bool
     files: List[_ParamFile]
 
@@ -68,10 +73,11 @@ class _WrapperParam:
             assert path.exists() and path.is_file(), f"Executable pyright not found at '{path}'"
 
 
-def _parse_wrapper_params(arguments: List[str]) -> Tuple[Optional[str], bool, List[str]]:
+def _parse_wrapper_params(arguments: List[str]) -> Tuple[Optional[str], bool, bool, List[str]]:
     pyright_path: Optional[str] = None
-    index = 0
+    uses_poetry_run = False
     disable_subproject_search = False
+    index = 0
 
     new_args = []
     while index < len(arguments):
@@ -79,6 +85,8 @@ def _parse_wrapper_params(arguments: List[str]) -> Tuple[Optional[str], bool, Li
         if argument.lower() == "--pyright-path":
             pyright_path = arguments[index + 1]
             index += 1
+        elif argument.lower() == "--uses_poetry_run":
+            uses_poetry_run = True
         elif argument.lower() == "--disable_subproject_search":
             disable_subproject_search = True
         else:
@@ -86,11 +94,13 @@ def _parse_wrapper_params(arguments: List[str]) -> Tuple[Optional[str], bool, Li
 
         index += 1
 
-    return pyright_path, disable_subproject_search, new_args
+    return pyright_path, uses_poetry_run, disable_subproject_search, new_args
 
 
 def _to_params(arguments: List[str]) -> Tuple[List[str], _WrapperParam]:
-    pyright_path, disable_subproject_search, arguments = _parse_wrapper_params(arguments)
+    pyright_path, use_poetry_run, disable_subproject_search, arguments = _parse_wrapper_params(
+        arguments
+    )
 
     start_index = 0
     index = len(arguments) - 1
@@ -134,7 +144,9 @@ def _to_params(arguments: List[str]) -> Tuple[List[str], _WrapperParam]:
             else:
                 parent = parent.parent
 
-    return params_pyright, _WrapperParam(pyright_path, disable_subproject_search, params_file)
+    return params_pyright, _WrapperParam(
+        pyright_path, use_poetry_run, disable_subproject_search, params_file
+    )
 
 
 def main(args: List[str]) -> int:
@@ -168,6 +180,7 @@ def main(args: List[str]) -> int:
         if wrapper_param.pyright_path is not None:
             pyright_command = _UserSpecifiedPyright(
                 pyright_path=wrapper_param.pyright_path,
+                uses_poetry_run=wrapper_param.uses_poetry_run,
                 args=args,
             )
         else:
